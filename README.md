@@ -1,5 +1,5 @@
 <div align="center">
-
+原项目：未支持增强版前的版本 https://github.com/toraidl/hyperos_port
 # HyperOS 移植项目
 
 简体中文&nbsp;&nbsp;|&nbsp;&nbsp;[English](/README_en-US.md) 
@@ -49,7 +49,7 @@ Contacts MIUIAod MiuiHome MIUISecurityCenter  Mms  MIUIContentExtension  MIUIPac
     sudo apt upgrade
     sudo apt install git -y
     # 克隆项目
-    git clone https://github.com/toraidl/hyperos_port.git
+    git clone https://github.com/WuaBai/hyperos_port.git
     cd hyperos_port
     # 安装依赖
     sudo ./setup.sh
@@ -62,7 +62,7 @@ Contacts MIUIAod MiuiHome MIUISecurityCenter  Mms  MIUIContentExtension  MIUIPac
     /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 
     # 克隆项目
-    git clone https://github.com/toraidl/hyperos_port.git
+    git clone https://github.com/WuaBai/hyperos_port.git
     cd hyperos_port
     # 安装依赖
     sudo ./setup.sh
@@ -75,7 +75,7 @@ Contacts MIUIAod MiuiHome MIUISecurityCenter  Mms  MIUIContentExtension  MIUIPac
     pkg upgrade
     pkg install git tsu -y
     # 克隆项目
-    git clone https://github.com/toraidl/hyperos_port.git
+    git clone https://github.com/WuaBai/hyperos_port.git
     cd hyperos_port/
     # 安装依赖
     ./setup.sh
@@ -84,14 +84,3 @@ Contacts MIUIAod MiuiHome MIUISecurityCenter  Mms  MIUIContentExtension  MIUIPac
     ./port.sh <底包路径> <移植包路径>
 ```
 - 上述代码中，底包路径和移植包路径可以替换为链接
-
-## 感谢
-> 本项目使用了以下开源项目的部分或全部内容，感谢这些项目的开发者（排名顺序不分先后）。
-
-- [「BypassSignCheck」by Weverses](https://github.com/Weverses/BypassSignCheck)
-- [「contextpatch」 by ColdWindScholar](https://github.com/ColdWindScholar/TIK)
-- [「fspatch」by affggh](https://github.com/affggh/fspatch)
-- [「gettype」by affggh](https://github.com/affggh/gettype)
-- [「lpunpack」by unix3dgforce](https://github.com/unix3dgforce/lpunpack)
-- [「miui_port」by ljc-fight](https://github.com/ljc-fight/miui_port)
-- etc
