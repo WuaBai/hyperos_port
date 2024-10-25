@@ -216,11 +216,15 @@ extract_partition() {
     target_dir=$2
     if [[ -f ${part_img} ]];then 
         if [[ $($tools_dir/gettype -i ${part_img} ) == "ext" ]];then
+            pack_type="EXT"
             blue "[ext] 正在分解${part_name}" "[ext] Extracing ${part_name} "
             sudo python3 bin/imgextractor/imgextractor.py ${part_img} ${target_dir} >/dev/null 2>&1 || { error "分解 ${part_name} 失败" "Extracting ${part_name} failed."; exit 1; }
             green "[ext]分解[${part_name}] 完成" "[ext] ${part_name} extracted."
             rm -rf ${part_img}      
         elif [[ $($tools_dir/gettype -i ${part_img}) == "erofs" ]]; then
+            if [[ $repackext4 != true ]];then
+                pack_type="EROFS"
+            fi
             blue "[erofs] 正在分解${part_name} " "[erofs] Extracing ${part_name} "
             extract.erofs -x -i ${part_img}  -o $target_dir > /dev/null 2>&1 || { error "分解 ${part_name} 失败" "Extracting ${part_name} failed." ; exit 1; }
             green "[erofs] 分解[${part_name}] 完成" "[erofs] ${part_name} extracted."
@@ -258,7 +262,8 @@ patch_kernel_to_bootimg() {
     bootimg_name=$3
     mkdir -p ${work_dir}/tmp/boot
     cd ${work_dir}/tmp/boot
-    cp ${work_dir}/build/baserom/boot.img ${work_dir}/tmp/boot/boot.img
+    bootimg=$(find ${work_dir}/build/baserom -name "boot.img")
+    cp $bootimg ${work_dir}/tmp/boot/boot.img
     magiskboot unpack -h ${work_dir}/tmp/boot/boot.img > /dev/null 2>&1
     if [ -f ramdisk.cpio ]; then
     comp=$(magiskboot decompress ramdisk.cpio | grep -v 'raw' | sed -n 's;.*\[\(.*\)\];\1;p')

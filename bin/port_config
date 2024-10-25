@@ -12,3 +12,6 @@ repack_with_ext4=true
 # 去除data加密   true:是  false:否
 # Remove data encryption or not. if it is false, you cannot access encrypted-data partition in recovery without a A14 supported TWRP.
 remove_data_encryption=false
+
+# Packing Rom with Payload.bin/new.dat.br type or super.img
+pack_method=aosp

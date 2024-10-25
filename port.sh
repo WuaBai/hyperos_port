@@ -43,11 +43,10 @@ check unzip aria2c 7z zip java zipalign python3 zstd bc xmlstarlet
 port_partition=$(grep "partition_to_port" bin/port_config |cut -d '=' -f 2)
 #super_list=$(grep "super_list" bin/port_config |cut -d '=' -f 2)
 repackext4=$(grep "repack_with_ext4" bin/port_config |cut -d '=' -f 2)
-
+pack_method=$(grep "pack_method" bin/port_config | cut -d '=' -f 2)
+nfc_fix_type=$(grep "nfc_fix_type" bin/port_config |cut -d '=' -f 2)
 if [[ ${repackext4} == true ]]; then
     pack_type=EXT
-else
-    pack_type=EROFS
 fi
 
 
@@ -80,10 +79,10 @@ else
     exit
 fi
 
-if [ "$(echo $baserom |grep miui_)" != "" ];then
-    device_code=$(basename $baserom |cut -d '_' -f 2)
-elif [ "$(echo $baserom |grep xiaomi.eu_)" != "" ];then
+if [ "$(echo $baserom |grep _multi_)" != "" ];then
     device_code=$(basename $baserom |cut -d '_' -f 3)
+elif [ "$(echo $baserom |grep miui_)" != "" ] || [ "$(echo $baserom |grep xiaomi.eu_)" != "" ];then
+    device_code=$(basename $baserom |cut -d '_' -f 2)
 else
     device_code="YourDevice"
 fi
@@ -279,7 +278,7 @@ rm -rf config
 blue "正在获取ROM参数" "Fetching ROM build prop."
 
 # 安卓版本
-base_android_version=$(< build/portrom/images/vendor/build.prop grep "ro.vendor.build.version.release" |awk 'NR==1' |cut -d '=' -f 2)
+base_android_version=$(< build/baserom/images/system/system/build.prop grep "ro.system.build.version.release" |awk 'NR==1' |cut -d '=' -f 2)
 port_android_version=$(< build/portrom/images/system/system/build.prop grep "ro.system.build.version.release" |awk 'NR==1' |cut -d '=' -f 2)
 green "安卓版本: 底包为[Android ${base_android_version}], 移植包为 [Android ${port_android_version}]" "Android Version: BASEROM:[Android ${base_android_version}], PORTROM [Android ${port_android_version}]"
 
@@ -299,9 +298,12 @@ port_device_code=$(echo $port_mios_version_incremental | cut -d "." -f 5)
 
 if [[ $port_mios_version_incremental == *DEV* ]] || [[ ${portrom_type} == "fastboot" ]];then
     yellow "检测到开发板，跳过修改版本代码" "Dev deteced,skip replacing codename"
-    port_rom_version=$(echo $port_mios_version_incremental)
-else
+    port_rom_version="$(echo $port_mios_version_incremental)"
+elif [[ $port_android_version == "14" ]];then
     base_device_code=U$(echo $base_rom_version | cut -d "." -f 5 | cut -c 2-)
+    port_rom_version=$(echo $port_mios_version_incremental | sed "s/$port_device_code/$base_device_code/")
+elif [[ $port_android_version == "15" ]];then
+    base_device_code=V$(echo $base_rom_version | cut -d "." -f 5 | cut -c 2-)
     port_rom_version=$(echo $port_mios_version_incremental | sed "s/$port_device_code/$base_device_code/")
 fi
 green "ROM 版本: 底包为 [${base_rom_version}], 移植包为 [${port_rom_version}]" "ROM Version: BASEROM: [${base_rom_version}], PORTROM: [${port_rom_version}] "
@@ -311,6 +313,7 @@ base_rom_code=$(< build/portrom/images/vendor/build.prop grep "ro.product.vendor
 port_rom_code=$(< build/portrom/images/product/etc/build.prop grep "ro.product.product.name" |awk 'NR==1' |cut -d '=' -f 2)
 green "机型代号: 底包为 [${base_rom_code}], 移植包为 [${port_rom_code}]" "Device Code: BASEROM: [${base_rom_code}], PORTROM: [${port_rom_code}]"
 
+port_release_codename=$(< build/portrom/images/system/system/build.prop grep "ro.build.version.release_or_codename" | awk 'NR=1' | cut -d '=' -f 2)
 if grep -q "ro.build.ab_update=true" build/portrom/images/vendor/build.prop;  then
     is_ab_device=true
 else
@@ -432,8 +435,8 @@ fi
 #fi
 
 # 人脸
-baseMiuiBiometric=$(find build/baserom/images/product/app -type d -name "MiuiBiometric*")
-portMiuiBiometric=$(find build/portrom/images/product/app -type d -name "MiuiBiometric*")
+baseMiuiBiometric=$(find build/baserom/images/product/app -type d -name "*Biometric*")
+portMiuiBiometric=$(find build/portrom/images/product/app -type d -name "*Biometric*")
 if [ -d "${baseMiuiBiometric}" ] && [ -d "${portMiuiBiometric}" ];then
     yellow "查找MiuiBiometric" "Searching and Replacing MiuiBiometric.."
     rm -rf ./${portMiuiBiometric}/*
@@ -480,6 +483,14 @@ if [[ -f $targetAospFrameworkResOverlay ]]; then
         # magic: Change DefaultPeakRefrshRate to 60 
         xmlstarlet ed -L -u "//integer[@name='config_defaultPeakRefreshRate']/text()" -v 60 $xml
     done
+    if [[ $port_android_version == "15" ]]; then
+        blue "Fix VanillaIceCream brightness" 
+        for xml in $(find tmp/$targetDir -type f -name "*.xml");do
+            sed -i "s/config_screenBrightnessSettingDefault\"/config_screenBrightnessSettingDefault_hyper\"/g" $xml
+            sed -i "s/config_screenBrightnessSettingMaximum\"/config_screenBrightnessSettingMaximum_hyper\"/g" $xml
+            sed -i "s/config_screenBrightnessSettingMinimum\"/config_screenBrightnessSettingMinimum_hyper\"/g" $xml 
+        done 
+    fi
     bin/apktool/apktool b tmp/$targetDir -o tmp/$filename > /dev/null 2>&1 || error "apktool 打包失败" "apktool mod failed"
     cp -rf tmp/$filename $targetAospFrameworkResOverlay
 fi
@@ -546,9 +557,12 @@ else
     blue "File $targetVintf not found."
 fi
 
-
-
-if [[ ${port_rom_code} != "sheng" ]] || [[ ${port_rom_code} != "shennong" ]];then
+if [[ ${port_rom_code} == "sheng" ]] || [[ ${port_android_version} == "15" ]];then
+    blue "Skip StrongToast UI fix"
+elif [[ ${port_rom_code} == "houji" ]] || [[ ${port_rom_code} == "shennong" ]] ;then
+    blue "左侧挖孔灵动岛修复" "StrongToast UI fix"
+    patch_smali "MiuiSystemUI.apk" "MIUIStrongToast\$2.smali" "const\/4 v7\, 0x0" "iget-object v7\, v1\, Lcom\/android\/systemui\/toast\/MIUIStrongToast;->mRLLeft:Landroid\/widget\/RelativeLayout;\\n\\tinvoke-virtual {v7}, Landroid\/widget\/RelativeLayout;->getLeft()I\\n\\tmove-result v7\\n\\tint-to-float v7,v7"
+else
 blue "左侧挖孔灵动岛修复" "StrongToast UI fix"
     patch_smali "MiuiSystemUI.apk" "MIUIStrongToast\$2.smali" "const\/4 v9\, 0x0" "iget-object v9\, v1\, Lcom\/android\/systemui\/toast\/MIUIStrongToast;->mRLLeft:Landroid\/widget\/RelativeLayout;\\n\\tinvoke-virtual {v9}, Landroid\/widget\/RelativeLayout;->getLeft()I\\n\\tmove-result v9\\n\\tint-to-float v9,v9"
 fi
@@ -560,9 +574,9 @@ fi
 
 if [[ ${is_eu_rom} == "true" ]];then
     patch_smali "miui-services.jar" "SystemServerImpl.smali" ".method public constructor <init>()V/,/.end method" ".method public constructor <init>()V\n\t.registers 1\n\tinvoke-direct {p0}, Lcom\/android\/server\/SystemServerStub;-><init>()V\n\n\treturn-void\n.end method" "regex"
-
-elif [[ ${port_rom_code} != "sheng" ]] || [[ ${port_rom_code} != "shennong" ]];then
-    
+elif [[ ${port_android_version} == "15" ]];then
+   blue "Skip Signature Verfier fix"
+else 
     if [[ ! -d tmp ]];then
         mkdir -p tmp/
     fi
@@ -647,7 +661,7 @@ else
     rm -rf build/portrom/images/product/etc/auto-install*
     rm -rf build/portrom/images/product/data-app/*GalleryLockscreen* >/dev/null 2>&1
     mkdir -p tmp/app
-    kept_data_apps=("DownloadProviderUi" "VirtualSim" "ThirdAppAssistant" "GameCenter" "Video" "Weather" "DeskClock" "Gallery" "SoundRecorder" "ScreenRecorder" "Calculator" "CleanMaster" "Calendar" "Compass" "Notes" "MediaEditor" "Scanner" "SpeechEngine" "wps-lite")
+    kept_data_apps=("MIUISecurityManager" "MIUIThemeStore" "DownloadProviderUi" "VirtualSim" "ThirdAppAssistant" "GameCenter" "Video" "Weather" "DeskClock" "Gallery" "SoundRecorder" "ScreenRecorder" "Calculator" "CleanMaster" "Calendar" "Compass" "Notes" "MediaEditor" "Scanner" "SpeechEngine" "wps-lite")
     for app in "${kept_data_apps[@]}"; do
         mv build/portrom/images/product/data-app/*"${app}"* tmp/app/ >/dev/null 2>&1
         done
@@ -810,57 +824,39 @@ fi
 
 unlock_device_feature "whether support fps change " "bool" "support_smart_fps"
 unlock_device_feature "smart fps value" "integer" "smart_fps_value" "${maxFps}"
+if [[ ${port_android_version} != "15" ]];then
 patch_smali "PowerKeeper.apk" "DisplayFrameSetting.smali" "unicorn" "umi"
+fi
 if [[ ${is_eu_rom} == true ]];then
     patch_smali "MiSettings.apk" "NewRefreshRateFragment.smali" "const-string v1, \"btn_preferce_category\"" "const-string v1, \"btn_preferce_category\"\n\n\tconst\/16 p1, 0x1"
 
 else
+    if [[ ${port_android_version} != "15" ]];then
     patch_smali "MISettings.apk" "NewRefreshRateFragment.smali" "const-string v1, \"btn_preferce_category\"" "const-string v1, \"btn_preferce_category\"\n\n\tconst\/16 p1, 0x1"
+    fi
 fi
 # Unlock eyecare mode 
 unlock_device_feature "default rhythmic eyecare mode" "integer" "default_eyecare_mode" "2"
 unlock_device_feature "default texture for paper eyecare" "integer" "paper_eyecare_default_texture" "0"
 
 # Unlock Celluar Sharing feature
-targetMiuiFrameworkResOverlay=$(find build/portrom/images/product -type f -name "MiuiFrameworkResOverlay.apk")
-if [[ -f $targetMiuiFrameworkResOverlay ]]; then
-    mkdir tmp/  > /dev/null 2>&1
     targetFrameworkExtRes=$(find build/portrom/images/system_ext -type f -name "framework-ext-res.apk")
-    bin/apktool/apktool d $targetFrameworkExtRes -o tmp/framework-ext-res -f > /dev/null 2>&1
+if [[ -f $targetFrameworkExtRes ]] && [[ ${port_android_version} != "15" ]]; then
+    mkdir tmp/  > /dev/null 2>&1 
+    java -jar bin/apktool/APKEditor.jar d -i $targetFrameworkExtRes -o tmp/framework-ext-res -f > /dev/null 2>&1
     if grep -r config_celluar_shared_support tmp/framework-ext-res/ ; then  
-        filename=$(basename $targetMiuiFrameworkResOverlay)
-        yellow "开启通信共享功能" "Enable Celluar Sharing feature"
-        targetDir=$(echo "$filename" | sed 's/\..*$//')
-        bin/apktool/apktool d $targetMiuiFrameworkResOverlay -o tmp/$targetDir -f > /dev/null 2>&1
-        bool_xml=$(find tmp/$targetDir -type f -name "bools.xml")
-        if ! xmlstarlet sel -t -c "//bool[@name='config_celluar_shared_support']" "$bool_xml" | grep -q '<bool'; then
-            blue "bools.xml: 布尔值config_celluar_shared_support未找到，正在添加..." "bools.xml: Boolean value config_celluar_shared_support not found, adding it..."
-            xmlstarlet ed -L -s /resources -t elem -n bool -v "true" \
-            -i "//bool[not(@name)]" -t attr -n name -v "config_celluar_shared_support" $bool_xml
-        fi
-        public_xml=$(find tmp/$targetDir -type f -name "public.xml")
         
-        LAST_ID=$(xmlstarlet sel -t -m "//public[@type='bool'][last()]" -v "@id" "$public_xml")
+        yellow "开启通信共享功能" "Enable Celluar Sharing feature"
+        
+        for xml in $(find tmp/framework-ext-res -name "*.xml");do
+            sed -i 's|<bool name="config_celluar_shared_support">false</bool>|<bool name="config_celluar_shared_support">true</bool>|g' "$xml"
 
-        if [ -z "$LAST_ID" ]; then
-            blue "在 public.xml 中未找到布尔值，分配config_celluar_shared_support默认 ID: 0x7f020000" "Boolean value not found in public.xml, assigning default ID: 0x7f020000"
-            NEW_ID_HEX="0x7f020000"
-        else
-            blue "public.xml: 找到最后一个布尔值 ID: $LAST_ID" "public.xml: Last boolean value ID $LAST_ID found"
-            LAST_ID_DEC=$((LAST_ID))
-            NEW_ID_DEC=$((LAST_ID_DEC + 1))
-            NEW_ID_HEX=$(printf "0x%08x" "$NEW_ID_DEC")
-            blue "public.xml: 分配config_celluar_shared_support新ID: $NEW_ID_HEX" "public.xml: Assigning new ID: $NEW_ID_HEX to config_celluar_shared_support"
-        fi
-        xmlstarlet ed -L -s /resources -t elem -n public -v "" \
-            -i "//public[not(@type)]" -t attr -n type -v "bool" \
-            -i "//public[not(@name)]" -t attr -n name -v "config_celluar_shared_support" \
-            -i "//public[not(@id)]" -t attr -n id -v "$NEW_ID_HEX" "$public_xml"
-
-        bin/apktool/apktool b tmp/$targetDir -o tmp/$filename > /dev/null 2>&1 || error "apktool 打包失败" "apktool mod failed"
-        cp -rf tmp/$filename $targetMiuiFrameworkResOverlay
-        rm -rf tmp
+        done
+        #rm -rf tmp
     fi
+    filename=$(basename $targetFrameworkExtRes)
+    java -jar bin/apktool/APKEditor.jar b -i tmp/framework-ext-res -o tmp/$filename -f> /dev/null 2>&1 || error "apktool 打包失败" "apktool mod failed"
+        cp -rf tmp/$filename $targetFrameworkExtRes
 fi
 
 if [[ ${port_rom_code} == "munch_cn" ]];then
@@ -985,11 +981,23 @@ if [[ -d "devices/common" ]];then
     targetMiLinkCirculateMIUI15=$(find build/portrom/images/product -type d -name "MiLinkCirculate*")
     targetNQNfcNci=$(find build/portrom/images/system/system build/portrom/images/product build/portrom/images/system_ext -type d -name "NQNfcNci*")
 
-    if [[ $base_android_version == "13" ]] && [[ $port_android_version == "14" ]];then
+    
+    if [[ $nfc_fix_type == "legacy" ]];then
+        if [[ -d $targetNQNfcNci ]];then
         rm -rf $targetNQNfcNci
+        fi
+        find build/portrom/images/ -name "com.nxp.nfc.nq.jar" -type f -delete
+        find build/portrom/images/ -name "com.xiaomi.nfc.jar" -type f -delete
+        unzip -oq devices/common/nfc_legacy.zip -d build/portrom/images/
+    elif [[ $nfc_fix_type == "a14" ]]; then
         unzip -oq devices/common/nfc_a14.zip -d build/portrom/images/
         echo "ro.vendor.nfc.dispatch_optim=1" >> build/portrom/images/vendor/build.prop
     fi
+    if [[ $base_device_code == "munch" ]] && [[ ${port_android_version} == "15" ]]; then
+        sourceCamera=$(find build/baserom/images/ -type f -name "MiuiCamera.apk")
+        targetCamera=$(find build/portrom/images/ -type d -name "MiuiCamera")
+        cp -rf $sourceCamera $targetCamera/
+    else
     
     if [[ $base_android_version == "13" ]] && [[ -f $commonCamera ]];then
         yellow "替换相机为10S HyperOS A13 相机，MI10可用, thanks to 酷安 @PedroZ" "Replacing a compatible MiuiCamera.apk verson 4.5.003000.2"
@@ -1002,7 +1010,7 @@ if [[ -d "devices/common" ]];then
         yellow "替换开机第二屏动画" "Repacling bootanimation.zip"
         cp -rf $bootAnimationZIP $targetAnimationZIP
     fi
-
+    fi
     if [[ -d "$targetMiLinkCirculateMIUI15" ]]; then
         rm -rf $targetMiLinkCirculateMIUI15/*
         cp -rf $MiLinkCirculateMIUI15 $targetMiLinkCirculateMIUI15
@@ -1157,6 +1165,141 @@ for pname in ${super_list};do
 done
 rm fstype.txt
 
+os_type="hyperos"
+if [[ ${is_eu_rom} == true ]];then
+    os_type="xiaomi.eu"
+fi
+
+for img in $(find build/baserom/images -type f -name "vbmeta*.img");do
+    python3 bin/patch-vbmeta.py ${img} > /dev/null 2>&1
+done
+
+if [[ $pack_method == "aosp" ]];then
+    rm -rf out/target/product/${base_rom_code}/
+    mkdir -p out/target/product/${base_rom_code}/IMAGES
+    mkdir -p out/target/product/${base_rom_code}/META
+    for part in SYSTEM SYSTEM_EXT PRODUCT VENDOR ODM MI_EXT; do
+        mkdir -p out/target/product/${base_rom_code}/$part
+    done
+    mv -fv build/portrom/images/*.img out/target/product/${base_rom_code}/IMAGES/
+    if [[ -d build/baserom/firmware-update ]];then
+        bootimg=$(find build/baserom/ -name "boot.img")
+        cp -rf $bootimg out/target/product/${base_rom_code}/IMAGES/
+    else
+        mv -fv build/baserom/images/*.img out/target/product/${base_rom_code}/IMAGES/
+    fi
+
+    if [[ -d devices/${base_rom_code} ]];then
+
+        ksu_bootimg_file=$(find devices/$base_rom_code/ -type f -name "*boot_ksu.img")
+        dtbo_file=$(find devices/$base_rom_code/ -type f -name "*dtbo_ksu.img")
+        if [ -f $ksu_bootimg_file ];then
+            mv -fv $ksu_bootimg_file out/target/product/${base_rom_code}/IMAGES/boot.img
+            mv -fv $dtbo_file out/target/product/${base_rom_code}/IMAGES/dtbo.img
+        fi
+    fi
+    rm -rf out/target/product/${base_rom_code}/META/ab_partitions.txt
+    rm -rf out/target/product/${base_rom_code}/target-file.zip
+    for part in out/target/product/${base_rom_code}/IMAGES/*.img; do
+        partname=$(basename "$part" .img)
+        echo $partname >> out/target/product/${base_rom_code}/META/ab_partitions.txt
+        if echo $super_list | grep -q -w "$partname"; then
+            super_list_info+="$partname "
+            bin/Linux/x86_64/map_file_generator $part ${part%.*}.map
+        fi
+    done 
+    rm -rf out/target/product/${base_rom_code}/META/dynamic_partitions_info.txt
+    let groupSize=superSize-1048576
+    {
+        echo "super_partition_size=$superSize"
+        echo "super_partition_groups=qti_dynamic_partitions"
+        echo "super_qti_dynamic_partitions_group_size=$groupSize"
+        echo "super_qti_dynamic_partitions_partition_list=$super_list_info"
+        echo "virtual_ab=true"
+        echo "virtual_ab_compression=true"
+    } >> out/target/product/${base_rom_code}/META/dynamic_partitions_info.txt
+
+    {
+        echo "default_system_dev_certificate=key/testkey"
+        echo "recovery_api_version=3"
+        echo "fstab_version=2"
+        echo "ab_update=true"
+     } >> out/target/product/${base_rom_code}/META/misc_info.txt
+    
+    if [[ "$is_ab_device" == false ]];then
+        sed -i "/ab_update=true/d" out/target/product/${base_rom_code}/META/misc_info.txt
+        {
+            echo "blockimgdiff_versions=3,4"
+            echo "use_dynamic_partitions=true"
+            echo "dynamic_partition_list=$super_list_info"
+            echo "super_partition_groups=qti_dynamic_partitions"
+            echo "super_qti_dynamic_partitions_group_size=$superSize"
+            echo "super_qti_dynamic_partitions_partition_list=$super_list_info"
+
+        } >> out/target/product/${base_rom_code}/META/misc_info.txt
+        mkdir -p out/target/product/${base_rom_code}/OTA/bin
+        if [[ -f devices/${base_device_code}/OTA/updater ]];then
+            cp -rf devices/${base_device_code}/OTA/updater out/target/product/${base_rom_code}/OTA/bin
+        else
+            cp -rf devices/common/non-ab/OTA/updater out/target/product/${base_rom_code}/OTA/bin
+        fi
+        if [[ -d build/baserom/firmware-update ]];then
+            cp -rf build/baserom/firmware-update out/target/product/${base_rom_code}/
+        elif find build/baserom/ -type f \( -name "*.elf" -o -name "*.mdn" -o -name "*.bin" \) | grep -q .; then
+            for firmware in $(find build/baserom/ -type f \( -name "*.elf" -o -name "*.mdn" -o -name "*.bin" \));do
+                mv  -rfv $firmware out/target/product/${base_rom_code}/firmware-update
+            done
+            bootimg=$(find build/baserom/ -name "boot.img")
+            dtboimg=$(find build/baserom/images -name "dtbo.img")
+            vbmetaimg=$(find build/baserom/images -name "vbmeta.img")
+            vmbeta_systemimg=$(find build/baserom/images -name "vbmeta_sytem.img")
+            cp -rf $bootimg out/target/product/${base_rom_code}/IMAGES/
+            cp -rf $dtboimg out/target/product/${base_rom_code}/firmware-update
+            cp -rf $vbmetaimg out/target/product/${base_rom_code}/firmware-update
+            cp -rf $vmbeta_systemimg out/target/product/${base_rom_code}/firmware-update
+        fi
+        export OUT=$(pwd)/out/target/product/${base_rom_code}/
+        if [[ -f devices/${base_device_code}/releasetools.py ]];then
+            cp -rf devices/${base_device_code}/releasetools.py out/target/product/${base_rom_code}/META/
+        else
+            cp -rf devices/common/releasetools.py out/target/product/${base_rom_code}/META/
+        fi
+
+        mkdir -p out/target/product/${base_rom_code}/RECOVERY/RAMDISK/etc/
+        if [[ -f devices/${base_device_code}/recovery.fstab ]];then
+            cp -rf devices/${base_device_code}/recovery.fstab out/target/product/${base_rom_code}/RECOVERY/RAMDISK/etc/
+        else
+            cp -rf devices/common/recovery.fstab out/target/product/${base_rom_code}/RECOVERY/RAMDISK/etc/
+        fi
+    fi
+    declare -A prop_paths=(
+    ["system"]="SYSTEM"
+    ["product"]="PRODUCT"
+    ["system_ext"]="SYSTEM_EXT"
+    ["vendor"]="VENDOR"
+    ["odm"]="ODM"
+    )
+
+    for dir in "${!prop_paths[@]}"; do
+        prop_file=$(find "build/portrom/images/$dir" -type f -name "build.prop" -print -quit)
+        if [ -n "$prop_file" ]; then
+            cp "$prop_file" "out/target/product/${base_rom_code}/${prop_paths[$dir]}/"
+        fi
+    done
+    pushd out/target/product/${base_rom_code}/
+    zip -r target-file.zip IMAGES META SYSTEM VENDOR ODM PRODUCT SYSTEM_EXT OTA MI_EXT RECOVERY
+    popd
+    ./bin/ota_from_target_files.py out/target/product/${base_rom_code}/target-file.zip out/${base_rom_code}-ota_full_${port_rom_version}-user-${port_android_version}.0.zip
+    ziphash=$(md5sum out/${base_rom_code}-ota_full_${port_rom_version}-user-${port_android_version}.0.zip |head -c 10)
+    if [[ ${is_eu_rom} == true ]];then
+       rom_code="xiaomi.eu"_$base_rom_code
+    else
+       rom_code=$base_rom_code
+    fi  
+    mv -f out/${base_rom_code}-ota_full_${port_rom_version}-user-${port_android_version}.0.zip out/${rom_code}-ota_full-${port_rom_version}-user-${port_android_version}.0-${ziphash}.zip
+    green "$(pwd)/out/${rom_code}-ota_full_${port_rom_version}-user-${port_android_version}.0-${ziphash}.zip"
+
+else
 # 打包 super.img
 if [[ "$is_ab_device" == false ]];then
     blue "打包A-only super.img" "Packing super.img for A-only device"
@@ -1202,10 +1345,7 @@ fi
 #    rm -rf build/portrom/images/${pname}.img
 #done
 
-os_type="hyperos"
-if [[ ${is_eu_rom} == true ]];then
-    os_type="xiaomi.eu"
-fi
+
 
 blue "正在压缩 super.img" "Comprising super.img"
 zstd --rm build/portrom/images/super.img -o build/portrom/images/super.zst
@@ -1328,7 +1468,10 @@ else
         sed -i "s/dtbo.img/dtbo_noksu.img/g" out/${os_type}_${device_code}_${port_rom_version}/windows_flash_script.bat
         sed -i "s/dtbo.img/dtbo_noksu.img/g" out/${os_type}_${device_code}_${port_rom_version}/mac_linux_flash_script.sh
     else
-    bootimg=$(find out/${os_type}_${device_code}_${port_rom_version} -name "boot.img")
+            bootimg=$(find out/${os_type}_${device_code}_${port_rom_version} build/baserom/ -name "boot.img" | head -n 1)
+            if [ ! -f $bootimg ];then
+                bootimg=$(find build/baserom/ -name "boot.img")
+            fi
     mv -f $bootimg out/${os_type}_${device_code}_${port_rom_version}/boot_official.img
     fi
 
@@ -1381,3 +1524,4 @@ mv out/${os_type}_${device_code}_${port_rom_version}.zip out/${os_type}_${device
 green "移植完毕" "Porting completed"    
 green "输出包路径：" "Output: "
 green "$(pwd)/out/${os_type}_${device_code}_${port_rom_version}_${hash}_${port_android_version}_${port_rom_code}_${pack_timestamp}_${pack_type}.zip"
+fi
